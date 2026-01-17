@@ -86,10 +86,10 @@ uv run embedding_generation.py
 # Module 3: Train and evaluate scoring heads (GPU recommended)
 uv run train_and_evaluate.py
 
-# Module 3.5: Aggregate results and compute metrics
+# Module 4: Aggregate results and compute metrics
 uv run aggregate_results.py
 
-# Module 4: Generate figures and LaTeX tables
+# Module 5: Generate figures and LaTeX tables
 uv run visualize_and_report.py
 ```
 
