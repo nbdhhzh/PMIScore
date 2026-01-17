@@ -15,10 +15,10 @@ The PMIScore framework provides a comprehensive pipeline for:
 ```
 PMIScore/
 ├── config.py                    # Shared configuration module
-├── main.py                      # Main entry point
 ├── data_processing.py           # Module 1: Dataset generation & preprocessing
 ├── embedding_generation.py      # Module 2: Embedding generation & MEEP scoring
 ├── train_and_evaluate.py        # Module 3: Training & evaluation of scoring heads
+├── aggregate_results.py          # Module 3.5: Results aggregation & metric computation
 ├── visualize_and_report.py      # Module 4: Visualization & LaTeX table generation
 ├── pyproject.toml               # Project dependencies (managed with uv)
 ├── uv.lock                      # Locked dependency versions
@@ -74,23 +74,26 @@ uv sync
 
 ## Quick Start
 
-The PMIScore pipeline consists of 4 independent modules. You can run each module separately:
+The PMIScore pipeline consists of 5 modules that must be run sequentially:
 
 ```bash
 # Module 1: Generate and process datasets
-python data_processing.py
+uv run data_processing.py
 
 # Module 2: Generate embeddings (GPU required)
-python embedding_generation.py
+uv run embedding_generation.py
 
 # Module 3: Train and evaluate scoring heads (GPU recommended)
-python train_and_evaluate.py
+uv run train_and_evaluate.py
+
+# Module 3.5: Aggregate results and compute metrics
+uv run aggregate_results.py
 
 # Module 4: Generate figures and LaTeX tables
-python visualize_and_report.py
+uv run visualize_and_report.py
 ```
 
-**Note**: The code respects existing data files and will skip regeneration if files already exist.
+**Note**: After running `uv sync`, use `uv run` instead of `python` to ensure the correct virtual environment is activated. The code respects existing data files and will skip regeneration if files already exist.
 
 ## Module Details
 
@@ -109,7 +112,7 @@ python visualize_and_report.py
 
 **Usage**:
 ```bash
-python data_processing.py
+uv run data_processing.py
 ```
 
 **Optional API Paraphrasing**: 
@@ -161,7 +164,7 @@ datasets/empirical/{en,zh}/
 
 **Usage**:
 ```bash
-python embedding_generation.py
+uv run embedding_generation.py
 ```
 
 **Requirements**:
@@ -217,7 +220,7 @@ Note: All `.npy`, `.pkl`, and `.pt` files are gitignored to keep the repository 
 
 **Usage**:
 ```bash
-python train_and_evaluate.py
+uv run train_and_evaluate.py
 ```
 
 **Requirements**:
@@ -242,6 +245,59 @@ Note: All `.npy`, `.pkl`, and `.pt` files are gitignored to keep the repository 
 - `BATCH_SIZE = 256`: Batch size
 - `LR = 1e-3`: Learning rate
 - `KDE_PCA_DIM = 128`: PCA dimension for KDE
+
+---
+
+### Module 3.5: Results Aggregation (`aggregate_results.py`)
+
+**Purpose**: Aggregate inference results from multiple training rounds and compute comprehensive metrics.
+
+**Key Functions**:
+- Reads scattered inference results from `train_and_evaluate.py` (round-specific CSV files)
+- Loads Direct MEEP scores and reconstructs sampling indices
+- Computes metrics for both Synthetic and Empirical datasets
+- Generates consolidated CSV files required for visualization
+
+**Metrics Computed**:
+
+**Synthetic Datasets**:
+- AUC: Binary classification performance (positive vs negative)
+- Spearman_PMI: Correlation between predicted scores and ground-truth PMI
+- Pearson_PMI: Linear correlation with ground-truth PMI
+- MSE_PMI: Mean squared error against ground-truth PMI
+
+**Empirical Datasets**:
+- AUC: Binary classification performance on test set
+- Spearman_Engaging: Correlation with human engagement scores
+- Pearson_Engaging: Linear correlation with human engagement scores
+- Spearman_Relevant: Correlation with human relevance scores
+- Pearson_Relevant: Linear correlation with human relevance scores
+
+**Usage**:
+```bash
+uv run aggregate_results.py
+```
+
+**Output**:
+```
+analysis_report/
+  - all_results_raw.csv          # Raw round-level metrics (required by Module 4)
+  - aggregated_results.csv        # Pooled statistics across models and rounds
+  - table_synthetic.csv          # Synthetic dataset performance table
+  - table_empirical.csv          # Empirical dataset performance table
+```
+
+**Key Features**:
+- Handles both Synthetic and Empirical datasets
+- Processes Direct MEEP scores with proper round-based sampling
+- Computes pooled statistics (mean ± std) across 5 training rounds
+- Generates display tables for paper figures
+
+**Key Parameters** (in `config.py`):
+- `NUM_ROUNDS = 5`: Number of training rounds
+- `NEG_SAMPLES_USED = 3`: Negatives used per round
+- `GROUP_SIZE = 16`: Total samples per group (1 pos + 15 neg)
+- `NUM_MEEP_SCORES = 5`: Number of Direct MEEP scores per sample
 
 ---
 
@@ -275,8 +331,11 @@ Note: All `.npy`, `.pkl`, and `.pt` files are gitignored to keep the repository 
 
 **Usage**:
 ```bash
-python visualize_and_report.py
+uv run visualize_and_report.py
 ```
+
+**Prerequisites**:
+- Must run `aggregate_results.py` first to generate `all_results_raw.csv`
 
 **Output**:
 ```
