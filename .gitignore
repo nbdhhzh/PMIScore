@@ -45,25 +45,25 @@ ENV/
 *.hdf5
 
 # Datasets
-datasets/
-datasets/**/
+# datasets/
+# datasets/**/
 
 # Embeddings
-embeddings/
-embeddings/**/
+# embeddings/
+# embeddings/**/
 
 # Results
-results/
-results/**/
+# results/
+# results/**/
 
 # MEEP scores
-meep_scores/
-meep_scores/**/
+# meep_scores/
+# meep_scores/**/
 
 # Analysis outputs (keep CSV files, ignore binaries and large outputs)
-analysis_report/*.png
-analysis_report/*.pdf
-analysis_report/*.txt
+# analysis_report/*.png
+# analysis_report/*.pdf
+# analysis_report/*.txt
 
 # Logs
 *.log
