@@ -18,11 +18,11 @@ PMIScore/
 ├── data_processing.py           # Module 1: Dataset generation & preprocessing
 ├── embedding_generation.py      # Module 2: Embedding generation & MEEP scoring
 ├── train_and_evaluate.py        # Module 3: Training & evaluation of scoring heads
-├── aggregate_results.py          # Module 3.5: Results aggregation & metric computation
-├── visualize_and_report.py      # Module 4: Visualization & LaTeX table generation
+├── aggregate_results.py         # Module 4: Results aggregation & metric computation
+├── visualize_and_report.py      # Module 5: Visualization & LaTeX table generation
 ├── pyproject.toml               # Project dependencies (managed with uv)
 ├── uv.lock                      # Locked dependency versions
-├── datasets/                    # Output from Module 1 (gitignored)
+├── datasets/                    # Output from Module 1
 │   ├── synthetic/
 │   │   ├── diagonal/
 │   │   ├── independent/
@@ -30,13 +30,13 @@ PMIScore/
 │   └── empirical/
 │       ├── en/
 │       └── zh/
-├── embeddings/                  # Output from Module 2 (gitignored)
+├── embeddings/                  # Output from Module 2
 │   ├── synthetic/
 │   └── empirical/
-├── results/                     # Output from Module 3 (gitignored)
+├── results/                     # Output from Module 3
 │   ├── synthetic/
 │   └── empirical/
-├── meep_scores/                 # Output from Module 2 (gitignored)
+├── meep_scores/                 # Output from Module 2
 │   ├── synthetic/
 │   └── empirical/
 └── analysis_report/
