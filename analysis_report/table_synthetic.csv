@@ -107,7 +107,6 @@ diagonal,meta-llama-Llama-3.2-3B-Instruct-FP16,MINE_Pair,0.873 (0.005),0.472 (0.
 diagonal,meta-llama-Llama-3.2-3B-Instruct-FP16,MINE_Prompt,0.854 (0.004),0.475 (0.020),0.634 (0.017),12.449 (2.647)
 diagonal,meta-llama-Llama-3.2-3B-Instruct-FP16,PMI_Pair,0.879 (0.002),0.498 (0.018),0.625 (0.027),3.028 (0.382)
 diagonal,meta-llama-Llama-3.2-3B-Instruct-FP16,PMI_Prompt,0.848 (0.004),0.478 (0.014),0.647 (0.017),2.093 (0.535)
-independent,Phi-4-mini-instruct,Direct_MEEP,0.498 (0.005),0.022 (0.019),-0.009 (0.029),1.227 (0.026)
 independent,Phi-4-mini-instruct,InfoNCE_Pair,0.502 (0.002),-0.012 (0.015),-0.015 (0.018),9.786 (10.345)
 independent,Phi-4-mini-instruct,InfoNCE_Prompt,0.516 (0.002),0.086 (0.026),0.079 (0.026),5.817 (6.019)
 independent,Phi-4-mini-instruct,KDE_Pair,0.524 (0.011),0.088 (0.022),0.102 (0.025),16.904 (0.881)

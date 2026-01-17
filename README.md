@@ -248,7 +248,7 @@ Note: All `.npy`, `.pkl`, and `.pt` files are gitignored to keep the repository 
 
 ---
 
-### Module 3.5: Results Aggregation (`aggregate_results.py`)
+### Module 4: Results Aggregation (`aggregate_results.py`)
 
 **Purpose**: Aggregate inference results from multiple training rounds and compute comprehensive metrics.
 
@@ -301,7 +301,7 @@ analysis_report/
 
 ---
 
-### Module 4: Visualization & Reporting (`visualize_and_report.py`)
+### Module 5: Visualization & Reporting (`visualize_and_report.py`)
 
 **Purpose**: Generate publication-ready figures and LaTeX tables.
 
