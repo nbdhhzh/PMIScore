@@ -492,7 +492,8 @@ def plot_figure_1_synthetic(df):
             capsize=3,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
-            alpha=0.9
+            alpha=0.9,
+            label=method
         )
 
     ax.set_xticks(np.arange(3))
@@ -520,7 +521,6 @@ def plot_figure_1_synthetic(df):
     ax.set_xticklabels([d.title() for d in datasets], fontsize=11)
     ax.set_ylabel('Mean Squared Error (↓)', fontweight='bold', fontsize=12)
     ax.set_ylim(0, 40)
-
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(
         handles, labels,
@@ -567,7 +567,8 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
             capsize=3,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
-            alpha=0.9
+            alpha=0.9,
+            label=method
         )
 
     ax.set_xticks(np.arange(len(datasets)))
@@ -596,7 +597,7 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
     ax.set_ylabel('Spearman Correlation (↑)', fontweight='bold', fontsize=12)
     ax.set_ylim(0, 0.6)
 
-    handles, labels = axes[1].get_legend_handles_labels()
+    handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(
         handles, labels,
         loc='upper center',
