@@ -95,18 +95,16 @@ class Config:
     # ==========================================
     
     # Prompt templates
-    MEEP_PROMPT_TEMPLATE = (
-        "Context: {context}\n"
-        "Response: {response}\n"
-        "On a scale of 1-10, how engaging is this response? Output ONLY a number."
-    )
-    
-    PMI_PROMPT_TEMPLATE = (
-        "Context: {context}\n"
-        "Response: {response}\n"
-        "Estimate the pointwise mutual information between this context and response. "
-        "Output a score."
-    )
+    MEEP_PROMPT_TEMPLATE = """Score the following response given the corresponding dialogue context on a continuous scale from 0 to 100, where a score of zero means ‘disengaging’ and a score of 100 means ‘very engaging’. Assume the response immediately follows the dialogue context. Consider that engagingness of a response is defined by the following qualities: variety of response according to the context (such as responding to ‘Hi how are you?’ with ‘I feel magnificent, because I just successfully defended my PhD! How are you?’ instead of ‘Good, how are you?’), likelihood of encouraging the other participant to respond (such as ‘I love legos! I like using them to make funny things. Do you like legos?’ instead of ‘I like legos.’), likelihood of encouraging a quality response from the other participant, interestingness, specificity, and likelihood of creating a sense of belonging for the other participant.
+Dialogue context: {context}
+Response: {response}
+Score:"""
+
+    PMI_PROMPT_TEMPLATE = """You are an assistant skilled at evaluating the relevance of a response to a given context.
+Task: Evaluate the relevance of the following response to the context.
+Context: {context}
+Response: {response}
+Result:"""
     
     # Model list for embedding generation
     MODELS = [

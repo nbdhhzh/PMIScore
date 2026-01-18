@@ -46,6 +46,7 @@ class VisualizationConfig:
     # Colors for methods
     COLORS = {
         "PMIScore": "#1f77b4",
+        "PMIScore-Pair": "#17becf",
         "MINE": "#ff7f0e",
         "InfoNCE": "#2ca02c",
         "KDE": "#d62728",
@@ -56,6 +57,7 @@ class VisualizationConfig:
     # Method name mapping (internal -> display)
     METHOD_MAP = {
         "PMI_Prompt": "PMIScore",
+        "PMI_Pair": "PMIScore-Pair",
         "MINE_Prompt": "MINE",
         "InfoNCE_Prompt": "InfoNCE",
         "KDE_Prompt": "KDE",
@@ -63,10 +65,10 @@ class VisualizationConfig:
     }
 
     # Target methods for visualization (figures)
-    TARGET_METHODS = ["PMIScore", "MINE", "InfoNCE", "KDE", "MEEP"]
+    TARGET_METHODS = ["PMIScore", "PMIScore-Pair", "MINE", "InfoNCE", "KDE", "MEEP"]
 
     # Methods for LaTeX tables (includes all methods, MEEP shown as "-" for OpenRouter models)
-    TABLE_METHODS = ["PMIScore", "MINE", "InfoNCE", "KDE", "MEEP"]
+    TABLE_METHODS = ["PMIScore", "PMIScore-Pair", "MINE", "InfoNCE", "KDE", "MEEP"]
     
     # OpenRouter model names (tables only, excluded from figures)
     OPENROUTER_MODEL_NAMES = config.Config.OPENROUTER_MODEL_NAMES
@@ -485,8 +487,10 @@ def plot_figure_1_synthetic(df):
     subset = df[df['Dataset_Type'] == 'Synthetic'].copy()
     datasets = ["diagonal", "block", "independent"]
     methods = VisualizationConfig.TARGET_METHODS
+    n_methods = len(methods)
+    bar_width = 0.8 / n_methods
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 3.5))
 
     # Left: Pearson
     ax = axes[0]
@@ -494,11 +498,11 @@ def plot_figure_1_synthetic(df):
     for i, method in enumerate(methods):
         m_data = subset[subset['Method_Display'] == method].set_index('Dataset').reindex(datasets)
         ax.bar(
-            np.arange(3) - 0.4 + 0.8/5/2 + i*(0.8/5),
-            m_data[f"{metric}_mu"], 0.8/5,
+            np.arange(3) - 0.4 + bar_width/2 + i*bar_width,
+            m_data[f"{metric}_mu"], bar_width,
             yerr=m_data[f"{metric}_sigma"].fillna(0),
             error_kw={'elinewidth': 1, 'markeredgewidth': 1, 'ecolor': 'black'},
-            capsize=3,
+            capsize=2,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
             alpha=0.9,
@@ -516,11 +520,11 @@ def plot_figure_1_synthetic(df):
     for i, method in enumerate(methods):
         m_data = subset[subset['Method_Display'] == method].set_index('Dataset').reindex(datasets)
         ax.bar(
-            np.arange(3) - 0.4 + 0.8/5/2 + i*(0.8/5),
-            m_data[f"{metric}_mu"], 0.8/5,
+            np.arange(3) - 0.4 + bar_width/2 + i*bar_width,
+            m_data[f"{metric}_mu"], bar_width,
             yerr=m_data[f"{metric}_sigma"].fillna(0),
             error_kw={'elinewidth': 1, 'markeredgewidth': 1, 'ecolor': 'black'},
-            capsize=3,
+            capsize=2,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
             alpha=0.9
@@ -535,9 +539,9 @@ def plot_figure_1_synthetic(df):
         handles, labels,
         loc='upper center',
         bbox_to_anchor=(0.5, 1.08),
-        ncol=len(methods),
+        ncol=n_methods,
         frameon=False,
-        fontsize=11
+        fontsize=10
     )
     plt.tight_layout()
     save_and_show(fig, 'Figure1_Synthetic_Pearson_MSE')
@@ -559,9 +563,11 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
     subset = df[df['Dataset_Type'] == 'Empirical'].copy()
     datasets = sorted(subset['Dataset'].unique())
     methods = VisualizationConfig.TARGET_METHODS
+    n_methods = len(methods)
+    bar_width = 0.8 / n_methods
     ds_labels = ["English", "Chinese"] if len(datasets) == 2 else datasets
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 3.5))
 
     # Left: AUC
     ax = axes[0]
@@ -569,11 +575,11 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
     for i, method in enumerate(methods):
         m_data = subset[subset['Method_Display'] == method].set_index('Dataset').reindex(datasets)
         ax.bar(
-            np.arange(len(datasets)) - 0.4 + 0.8/5/2 + i*(0.8/5),
-            m_data[f"{metric}_mu"], 0.8/5,
+            np.arange(len(datasets)) - 0.4 + bar_width/2 + i*bar_width,
+            m_data[f"{metric}_mu"], bar_width,
             yerr=m_data[f"{metric}_sigma"].fillna(0),
             error_kw={'elinewidth': 1, 'markeredgewidth': 1, 'ecolor': 'black'},
-            capsize=3,
+            capsize=2,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
             alpha=0.9,
@@ -591,11 +597,11 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
     for i, method in enumerate(methods):
         m_data = subset[subset['Method_Display'] == method].set_index('Dataset').reindex(datasets)
         ax.bar(
-            np.arange(len(datasets)) - 0.4 + 0.8/5/2 + i*(0.8/5),
-            m_data[f"{metric}_mu"], 0.8/5,
+            np.arange(len(datasets)) - 0.4 + bar_width/2 + i*bar_width,
+            m_data[f"{metric}_mu"], bar_width,
             yerr=m_data[f"{metric}_sigma"].fillna(0),
             error_kw={'elinewidth': 1, 'markeredgewidth': 1, 'ecolor': 'black'},
-            capsize=3,
+            capsize=2,
             color=VisualizationConfig.COLORS.get(method),
             edgecolor='black',
             alpha=0.9
@@ -611,9 +617,9 @@ def plot_figure_2_empirical(df, metric_left='AUC', metric_right='Spearman_Releva
         handles, labels,
         loc='upper center',
         bbox_to_anchor=(0.5, 1.08),
-        ncol=len(methods),
+        ncol=n_methods,
         frameon=False,
-        fontsize=11
+        fontsize=10
     )
     plt.tight_layout()
     save_and_show(fig, 'Figure2_Empirical_AUC_Spearman')
@@ -623,7 +629,7 @@ def plot_figure_3_regression_scatter(dataset_name):
     """
     Generate Figure 3: Regression scatter plots per dataset.
 
-    Creates a 1x5 subplot showing predicted PMI vs ground-truth PMI
+    Creates a 2x3 subplot showing predicted PMI vs ground-truth PMI
     for each method on a specific dataset.
 
     Args:
@@ -637,7 +643,11 @@ def plot_figure_3_regression_scatter(dataset_name):
         return
 
     methods = VisualizationConfig.TARGET_METHODS
-    fig, axes = plt.subplots(1, 5, figsize=(12, 3), constrained_layout=True)
+    n_methods = len(methods)
+    n_cols = 3
+    n_rows = (n_methods + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 3 * n_rows), constrained_layout=True)
+    axes = axes.flatten()
 
     true_vals = df['true_pmi'].values
     lims = [-4.5, 4.5]
@@ -678,8 +688,11 @@ def plot_figure_3_regression_scatter(dataset_name):
         ax.set_yticks([-4, -2, 0, 2, 4])
 
         ax.set_xlabel('Ground-Truth PMI', fontsize=10)
-        if i == 0:
+        if i % n_cols == 0:
             ax.set_ylabel(f'{dataset_name.capitalize()}\nEstimated PMI', fontweight='bold', fontsize=11)
+
+    for j in range(n_methods, len(axes)):
+        axes[j].axis('off')
 
     save_and_show(fig, f'Figure3_Regression_Scatter_{dataset_name.capitalize()}')
 
