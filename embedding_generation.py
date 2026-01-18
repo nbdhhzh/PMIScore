@@ -660,13 +660,22 @@ class OpenRouterEmbeddingProcessor:
                 result = await coro
                 results.append(result)
         
+        embed_dim = None
+        for r in results:
+            if r is not None and len(r) > 0:
+                embed_dim = len(r[0])
+                break
+        
+        if embed_dim is None:
+            raise Exception("All embedding batches failed")
+        
         all_embeddings = []
         for i, batch in enumerate(batches):
             batch_result = results[i]
             if batch_result is not None:
                 all_embeddings.extend(batch_result)
             else:
-                all_embeddings.extend([[0.0] * 4096] * len(batch))
+                all_embeddings.extend([[0.0] * embed_dim] * len(batch))
         
         return np.array(all_embeddings, dtype=np.float32)
     

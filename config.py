@@ -200,8 +200,8 @@ class Config:
     
     # OpenRouter Embedding Models (embedding-only, no MEEP scoring)
     OPENROUTER_EMBEDDING_MODELS = [
-        "qwen/qwen3-embedding-8b",
-        "qwen/qwen3-embedding-4b",
+        "openai/text-embedding-3-large",
+        "google/gemini-embedding-001",
     ]
     
     # OpenRouter model names (for filtering in visualization - tables only, no plots)

@@ -20,6 +20,7 @@ import json
 import math
 import pickle
 import time
+import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -578,10 +579,54 @@ def infer_nn(model, X, device='cuda'):
 # MAIN EXECUTION
 # ==========================================
 
-def main():
-    """Main function to train and evaluate all scoring heads."""
+def check_round_complete(out_dir, round_num, ds_type):
+    """
+    Check if a training round is complete (all models and inference results exist).
+    
+    Args:
+        out_dir: Output directory for this model
+        round_num: Round number (1-5)
+        ds_type: Dataset type ('synthetic' or 'empirical')
+    
+    Returns:
+        bool: True if round is complete, False otherwise
+    """
+    splits = ["test"]
+    if ds_type == "empirical":
+        splits.append("human")
+    
+    for name, _, _ in config.Config.NN_CONFIGS:
+        model_path = out_dir / f"round_{round_num}_{name}_model.pt"
+        if not model_path.exists():
+            return False
+    
+    for name, _ in config.Config.KDE_CONFIGS:
+        pkl_path = out_dir / f"round_{round_num}_{name}_model.pkl"
+        if not pkl_path.exists():
+            return False
+    
+    for split in splits:
+        result_path = out_dir / f"round_{round_num}_{split}_inference_results.csv"
+        if not result_path.exists():
+            return False
+    
+    return True
+
+
+def main(force_overwrite=False, train_only=False, infer_only=False, models_filter=None):
+    """
+    Main function to train and evaluate all scoring heads.
+    
+    Args:
+        force_overwrite: If True, retrain all models even if they exist.
+        train_only: If True, only train models without inference.
+        infer_only: If True, only run inference using existing models.
+        models_filter: List of model names to process (None = all models).
+    """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
+    print(f"Force Overwrite: {force_overwrite}")
+    print(f"Train Only: {train_only}, Infer Only: {infer_only}")
 
     config.STATS.start("Module 3 Total")
 
@@ -604,6 +649,9 @@ def main():
             for model_dir in model_dirs:
                 model_name_for_path = model_dir.name
                 emb_path = model_dir
+                
+                if models_filter and model_name_for_path not in models_filter:
+                    continue
 
                 current_model_task_name = f"M3-{ds_name}-{model_name_for_path}"
                 config.STATS.start(current_model_task_name)
@@ -629,6 +677,10 @@ def main():
                 # LOOP OVER T=5 ROUNDS
                 # =========================================
                 for t in range(1, config.Config.NUM_ROUNDS + 1):
+                    if not force_overwrite and check_round_complete(out_dir, t, ds_type):
+                        print(f"[Skip] Round {t} already complete for {model_name_for_path}")
+                        continue
+                    
                     print(f"\n>>> Round {t}/{config.Config.NUM_ROUNDS} <<<")
 
                     # A. Sample training data for this round
@@ -636,67 +688,95 @@ def main():
 
                     # B. Train Neural Networks
                     trained_nns = {}
-                    nn_pbar = tqdm(config.Config.NN_CONFIGS, desc="Training NNs", leave=True)
+                    if not infer_only:
+                        nn_pbar = tqdm(config.Config.NN_CONFIGS, desc="Training NNs", leave=True)
 
-                    for name, loss, in_mode in nn_pbar:
-                        timer_name = f"R1-Train-{ds_name}-{model_name_for_path}-{name}"
-                        if t == 1:
-                            config.STATS.start(timer_name)
+                        for name, loss, in_mode in nn_pbar:
+                            timer_name = f"R1-Train-{ds_name}-{model_name_for_path}-{name}"
+                            if t == 1:
+                                config.STATS.start(timer_name)
 
-                        model_save_path = out_dir / f"round_{t}_{name}_model.pt"
+                            model_save_path = out_dir / f"round_{t}_{name}_model.pt"
 
-                        X_tr = get_input_tensor(tr_data_sampled, in_mode)
-                        if X_tr is None:
+                            X_tr = get_input_tensor(tr_data_sampled, in_mode)
+                            if X_tr is None:
+                                if t == 1:
+                                    config.STATS.end(timer_name)
+                                continue
+
+                            dim = X_tr.shape[1]
+                            model = ScoringHead(dim).to(device)
+
+                            should_train = force_overwrite or not model_save_path.exists()
+                            
+                            if model_save_path.exists() and not force_overwrite:
+                                model.load_state_dict(torch.load(model_save_path, map_location=device))
+                            else:
+                                model = train_nn_head(X_tr, tr_meta_sampled, loss, name=name, device=device)
+                                torch.save(model.state_dict(), model_save_path)
+
+                            trained_nns[name] = (model, in_mode)
+
                             if t == 1:
                                 config.STATS.end(timer_name)
-                            continue
-
-                        dim = X_tr.shape[1]
-                        model = ScoringHead(dim).to(device)
-
-                        # Load existing model if available
-                        if model_save_path.exists():
-                            model.load_state_dict(torch.load(model_save_path, map_location=device))
-                        else:
-                            model = train_nn_head(X_tr, tr_meta_sampled, loss, name=name, device=device)
-                            torch.save(model.state_dict(), model_save_path)
-
-                        trained_nns[name] = (model, in_mode)
-
-                        if t == 1:
-                            config.STATS.end(timer_name)
+                    else:
+                        for name, loss, in_mode in config.Config.NN_CONFIGS:
+                            model_save_path = out_dir / f"round_{t}_{name}_model.pt"
+                            if model_save_path.exists():
+                                X_tr = get_input_tensor(tr_data_sampled, in_mode)
+                                if X_tr is not None:
+                                    dim = X_tr.shape[1]
+                                    model = ScoringHead(dim).to(device)
+                                    model.load_state_dict(torch.load(model_save_path, map_location=device))
+                                    trained_nns[name] = (model, in_mode)
 
                     # C. Fit KDE Estimators
                     trained_kdes = {}
-                    kde_pbar = tqdm(config.Config.KDE_CONFIGS, desc="Fitting KDEs", leave=True)
+                    if not infer_only:
+                        kde_pbar = tqdm(config.Config.KDE_CONFIGS, desc="Fitting KDEs", leave=True)
 
-                    for name, mode in kde_pbar:
-                        timer_name = f"R1-Fit-{ds_name}-{model_name_for_path}-{name}"
-                        if t == 1:
-                            config.STATS.start(timer_name)
+                        for name, mode in kde_pbar:
+                            timer_name = f"R1-Fit-{ds_name}-{model_name_for_path}-{name}"
+                            if t == 1:
+                                config.STATS.start(timer_name)
 
-                        pkl_save_path = out_dir / f"round_{t}_{name}_model.pkl"
+                            pkl_save_path = out_dir / f"round_{t}_{name}_model.pkl"
 
-                        if pkl_save_path.exists():
-                            try:
-                                with open(pkl_save_path, "rb") as f:
-                                    estimator = pickle.load(f)
-                                trained_kdes[name] = (estimator, mode)
-                            except Exception as e:
-                                print(f"    [Warn] Could not load pre-trained KDE {name} from {pkl_save_path}: {e}")
-                        else:
-                            try:
-                                estimator = fit_kde_estimators(tr_data_sampled, tr_meta_sampled, mode)
-                                trained_kdes[name] = (estimator, mode)
-                                with open(pkl_save_path, "wb") as f:
-                                    pickle.dump(estimator, f)
-                            except Exception as e:
-                                print(f"    [Err] {name}: {e}")
+                            should_train = force_overwrite or not pkl_save_path.exists()
+                            
+                            if pkl_save_path.exists() and not force_overwrite:
+                                try:
+                                    with open(pkl_save_path, "rb") as f:
+                                        estimator = pickle.load(f)
+                                    trained_kdes[name] = (estimator, mode)
+                                except Exception as e:
+                                    print(f"    [Warn] Could not load pre-trained KDE {name} from {pkl_save_path}: {e}")
+                            else:
+                                try:
+                                    estimator = fit_kde_estimators(tr_data_sampled, tr_meta_sampled, mode)
+                                    trained_kdes[name] = (estimator, mode)
+                                    with open(pkl_save_path, "wb") as f:
+                                        pickle.dump(estimator, f)
+                                except Exception as e:
+                                    print(f"    [Err] {name}: {e}")
 
-                        if t == 1:
-                            config.STATS.end(timer_name)
+                            if t == 1:
+                                config.STATS.end(timer_name)
+                    else:
+                        for name, mode in config.Config.KDE_CONFIGS:
+                            pkl_save_path = out_dir / f"round_{t}_{name}_model.pkl"
+                            if pkl_save_path.exists():
+                                try:
+                                    with open(pkl_save_path, "rb") as f:
+                                        estimator = pickle.load(f)
+                                    trained_kdes[name] = (estimator, mode)
+                                except Exception:
+                                    pass
 
-                    # D. Inference
+                    # D. Inference (skip if train_only)
+                    if train_only:
+                        continue
+                        
                     splits = ["test"]
                     if ds_type == "empirical":
                         splits.append("human")
@@ -769,5 +849,25 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="PMIScore Module 3: Training and Evaluation")
+    parser.add_argument("--force-overwrite", action="store_true",
+                        help="Force retrain all models even if they exist")
+    parser.add_argument("--train-only", action="store_true",
+                        help="Only train models without running inference")
+    parser.add_argument("--infer-only", action="store_true",
+                        help="Only run inference using existing models (skip training)")
+    parser.add_argument("--models", type=str, default=None,
+                        help="Comma-separated list of model names to process (e.g., 'Qwen3-4B,Qwen3-8B')")
+    args = parser.parse_args()
+    
+    models_filter = None
+    if args.models:
+        models_filter = [m.strip() for m in args.models.split(",")]
+    
+    main(
+        force_overwrite=args.force_overwrite,
+        train_only=args.train_only,
+        infer_only=args.infer_only,
+        models_filter=models_filter
+    )
     config.STATS.summary("execution_summary_module3.txt")
