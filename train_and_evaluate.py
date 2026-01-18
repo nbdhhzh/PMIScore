@@ -598,22 +598,12 @@ def main():
         ds_names = [d.name for d in (config.Config.EMBEDDING_DIR / ds_type).iterdir() if d.is_dir()]
 
         for ds_name in ds_names:
-            for model_full_name in config.Config.MODELS:
-                model_name_for_path = Path(model_full_name).name
-
-                # Find embedding path
-                emb_path = None
-                candidates = [
-                    config.Config.EMBEDDING_DIR / ds_type / ds_name / model_full_name,
-                    config.Config.EMBEDDING_DIR / ds_type / ds_name / model_name_for_path
-                ]
-                for p in candidates:
-                    if p.exists():
-                        emb_path = p
-                        break
-
-                if not emb_path:
-                    continue
+            ds_path = config.Config.EMBEDDING_DIR / ds_type / ds_name
+            model_dirs = [d for d in ds_path.iterdir() if d.is_dir()]
+            
+            for model_dir in model_dirs:
+                model_name_for_path = model_dir.name
+                emb_path = model_dir
 
                 current_model_task_name = f"M3-{ds_name}-{model_name_for_path}"
                 config.STATS.start(current_model_task_name)

@@ -17,20 +17,27 @@ Requirements: GPU with vLLM support
 
 import os
 import json
+import asyncio
+import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
 from config import Config, ExecutionStats
 
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
+
 # Initialize execution stats
 STATS = ExecutionStats()
 
 
 def install_dependencies():
-    """Install required dependencies for vLLM and GPU processing."""
+    """Install required dependencies for vLLM, GPU processing, and async HTTP."""
     print("[Info] Installing vLLM and other dependencies...")
-    os.system("pip install vllm")
+    os.system("pip install vllm aiohttp")
 
 
 def clear_gpu_memory():
@@ -56,16 +63,45 @@ class ModelProcessor:
     - MEEP direct scoring via text generation
     """
     
-    def __init__(self, model_path):
+    def __init__(self, model_path, force_overwrite=False):
         """
         Initialize ModelProcessor.
         
         Args:
             model_path: Path to the model (e.g., "Qwen/Qwen3-4B").
+            force_overwrite: If True, regenerate embeddings even if they exist.
         """
         self.model_path = model_path
         self.model_name = model_path.split("/")[-1]
+        self.force_overwrite = force_overwrite
         self.llm = None
+    
+    def _should_skip(self, npy_path, expected_count):
+        """
+        Check if embedding file should be skipped.
+        
+        Args:
+            npy_path: Path to the .npy file.
+            expected_count: Expected number of embeddings.
+        
+        Returns:
+            True if file exists with correct count, False otherwise.
+        """
+        if self.force_overwrite:
+            return False
+        if not npy_path.exists():
+            return False
+        try:
+            data = np.load(npy_path)
+            if data.shape[0] == expected_count:
+                print(f"[Skip] {npy_path.name} exists with correct count ({expected_count})")
+                return True
+            else:
+                print(f"[Regenerate] {npy_path.name}: expected {expected_count}, got {data.shape[0]}")
+                return False
+        except Exception as e:
+            print(f"[Regenerate] {npy_path.name}: load error - {e}")
+            return False
     
     def _init_vllm(self, task="generate"):
         """
@@ -211,16 +247,24 @@ class ModelProcessor:
             out_pmt_pmi_npy = out_dir / f"{split_name}_prompt_pmi_embeddings.npy"
             out_meta = out_dir / f"{split_name}_meta.csv"
             
-            # Check if all files already exist
-            if (out_ctx_npy.exists() and out_rsp_npy.exists() and 
-                out_pmt_npy.exists() and out_meta.exists() and out_pmt_pmi_npy.exists()):
-                print(f"[Skip] All embeddings exist for {ds_type}/{ds_name}/{split_name}")
-                continue
-            
             op_name = f"{self.model_name} - Embed - {ds_type}/{ds_name}/{split_name}"
             STATS.start(op_name)
             print(f"Embedding {ds_type}/{ds_name} - {split_name} ...")
             df = pd.read_csv(file_path)
+            expected_count = len(df)
+            
+            # Check if all files should be skipped (smart skip logic)
+            all_skipped = (
+                self._should_skip(out_ctx_npy, expected_count) and
+                self._should_skip(out_rsp_npy, expected_count) and
+                self._should_skip(out_pmt_npy, expected_count) and
+                self._should_skip(out_pmt_pmi_npy, expected_count) and
+                out_meta.exists()
+            )
+            if all_skipped:
+                print(f"[Skip] All embeddings valid for {ds_type}/{ds_name}/{split_name}")
+                STATS.end(op_name)
+                continue
             
             # Prepare text lists
             contexts = []
@@ -241,7 +285,7 @@ class ModelProcessor:
             
             try:
                 # 1. Context Embeddings (Raw)
-                if not out_ctx_npy.exists():
+                if not self._should_skip(out_ctx_npy, expected_count):
                     sub_op_name = f"{op_name} - Context"
                     STATS.start(sub_op_name)
                     print("  -> Embedding Contexts...")
@@ -251,7 +295,7 @@ class ModelProcessor:
                     STATS.end(sub_op_name)
                 
                 # 2. Response Embeddings (Raw)
-                if not out_rsp_npy.exists():
+                if not self._should_skip(out_rsp_npy, expected_count):
                     sub_op_name = f"{op_name} - Response"
                     STATS.start(sub_op_name)
                     print("  -> Embedding Responses...")
@@ -261,7 +305,7 @@ class ModelProcessor:
                     STATS.end(sub_op_name)
                 
                 # 3. Prompt Embeddings (MEEP Template)
-                if not out_pmt_npy.exists():
+                if not self._should_skip(out_pmt_npy, expected_count):
                     sub_op_name = f"{op_name} - Prompt_MEEP"
                     STATS.start(sub_op_name)
                     print("  -> Embedding Prompts_MEEP...")
@@ -271,7 +315,7 @@ class ModelProcessor:
                     STATS.end(sub_op_name)
                 
                 # 4. Prompt Embeddings (PMI Template)
-                if not out_pmt_pmi_npy.exists():
+                if not self._should_skip(out_pmt_pmi_npy, expected_count):
                     sub_op_name = f"{op_name} - Prompt_PMI"
                     STATS.start(sub_op_name)
                     print("  -> Embedding Prompts_PMI...")
@@ -446,38 +490,351 @@ def extract_score(text):
     return None
 
 
+class OpenRouterEmbeddingProcessor:
+    """
+    Process embeddings using OpenRouter API for embedding-only models.
+    
+    This class handles:
+    - Async batch API calls to OpenRouter embedding endpoint
+    - Parallel processing with rate limiting
+    - Smart skip logic based on file existence and data count
+    """
+    
+    def __init__(self, model_id, force_overwrite=False):
+        """
+        Initialize OpenRouterEmbeddingProcessor.
+        
+        Args:
+            model_id: OpenRouter model ID (e.g., "qwen/qwen3-embedding-8b").
+            force_overwrite: If True, regenerate embeddings even if they exist.
+        """
+        self.model_id = model_id
+        self.model_name = model_id.split("/")[-1]
+        self.force_overwrite = force_overwrite
+    
+    def _should_skip(self, npy_path, expected_count):
+        """
+        Check if embedding file should be skipped.
+        
+        Args:
+            npy_path: Path to the .npy file.
+            expected_count: Expected number of embeddings.
+        
+        Returns:
+            True if file exists with correct count, False otherwise.
+        """
+        if self.force_overwrite:
+            return False
+        if not npy_path.exists():
+            return False
+        try:
+            data = np.load(npy_path)
+            if data.shape[0] == expected_count:
+                print(f"[Skip] {npy_path.name} exists with correct count ({expected_count})")
+                return True
+            else:
+                print(f"[Regenerate] {npy_path.name}: expected {expected_count}, got {data.shape[0]}")
+                return False
+        except Exception as e:
+            print(f"[Regenerate] {npy_path.name}: load error - {e}")
+            return False
+    
+    def _get_dataset_files(self):
+        """
+        Get list of dataset files to process.
+        
+        Returns:
+            List of dictionaries containing dataset information.
+        """
+        files = []
+        
+        for case in Config.SYNTHETIC_CASES:
+            base = Config.DATA_DIR / "synthetic" / case
+            if not base.exists():
+                continue
+            for split in ["train", "val", "test"]:
+                fname = f"{split}_with_negatives.csv"
+                if (base / fname).exists():
+                    files.append({
+                        "type": "synthetic",
+                        "dataset_name": case,
+                        "split": split,
+                        "path": base / fname
+                    })
+                elif (base / f"{split}.csv").exists():
+                    files.append({
+                        "type": "synthetic",
+                        "dataset_name": case,
+                        "split": split,
+                        "path": base / f"{split}.csv"
+                    })
+        
+        for lang in Config.EMPIRICAL_LANGS:
+            base = Config.DATA_DIR / "empirical" / lang
+            if not base.exists():
+                continue
+            for split in ["train", "val", "test"]:
+                fname = f"{split}_with_negatives.csv"
+                if (base / fname).exists():
+                    files.append({
+                        "type": "empirical",
+                        "dataset_name": lang,
+                        "split": split,
+                        "path": base / fname
+                    })
+            if (base / "human.csv").exists():
+                files.append({
+                    "type": "empirical",
+                    "dataset_name": lang,
+                    "split": "human",
+                    "path": base / "human.csv"
+                })
+        
+        return files
+    
+    async def _embed_batch(self, texts, session):
+        """
+        Send a batch of texts to OpenRouter embedding API.
+        
+        Args:
+            texts: List of texts to embed.
+            session: aiohttp ClientSession.
+        
+        Returns:
+            List of embedding vectors.
+        """
+        headers = {
+            "Authorization": f"Bearer {Config.API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_id,
+            "input": texts
+        }
+        
+        async with session.post(
+            Config.OPENROUTER_EMBEDDING_URL,
+            json=payload,
+            headers=headers
+        ) as resp:
+            if resp.status != 200:
+                error_text = await resp.text()
+                raise Exception(f"API error {resp.status}: {error_text}")
+            result = await resp.json()
+            sorted_data = sorted(result["data"], key=lambda x: x["index"])
+            return [item["embedding"] for item in sorted_data]
+    
+    async def _embed_texts_async(self, texts):
+        """
+        Embed all texts using parallel API calls.
+        
+        Args:
+            texts: List of texts to embed.
+        
+        Returns:
+            numpy.ndarray: Embedding matrix.
+        """
+        if aiohttp is None:
+            raise ImportError("aiohttp is required. Run: pip install aiohttp")
+        
+        batch_size = Config.OPENROUTER_BATCH_SIZE
+        batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+        
+        semaphore = asyncio.Semaphore(Config.OPENROUTER_MAX_CONCURRENT)
+        
+        async def limited_embed(batch, session, batch_idx):
+            async with semaphore:
+                try:
+                    return await self._embed_batch(batch, session)
+                except Exception as e:
+                    print(f"[Error] Batch {batch_idx} failed: {e}")
+                    return None
+        
+        connector = aiohttp.TCPConnector(limit=Config.OPENROUTER_MAX_CONCURRENT)
+        timeout = aiohttp.ClientTimeout(total=300)
+        
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            tasks = [limited_embed(batch, session, i) for i, batch in enumerate(batches)]
+            results = []
+            for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="API Batches"):
+                result = await coro
+                results.append(result)
+        
+        all_embeddings = []
+        for i, batch in enumerate(batches):
+            batch_result = results[i]
+            if batch_result is not None:
+                all_embeddings.extend(batch_result)
+            else:
+                all_embeddings.extend([[0.0] * 4096] * len(batch))
+        
+        return np.array(all_embeddings, dtype=np.float32)
+    
+    def embed_texts(self, texts):
+        """
+        Synchronous wrapper for embedding texts.
+        
+        Args:
+            texts: List of texts to embed.
+        
+        Returns:
+            numpy.ndarray: Embedding matrix.
+        """
+        return asyncio.run(self._embed_texts_async(texts))
+    
+    def run_embeddings(self):
+        """
+        Generate embeddings for all datasets using OpenRouter API.
+        
+        Generates 4 types of embeddings per sample:
+        1. Context embeddings (raw)
+        2. Response embeddings (raw)
+        3. Prompted embeddings (MEEP template)
+        4. Prompted embeddings (PMI template)
+        """
+        if Config.API_KEY is None:
+            print("[Error] OPENROUTER_API_KEY not set. Skipping OpenRouter embeddings.")
+            return
+        
+        tasks = self._get_dataset_files()
+        
+        for task in tasks:
+            ds_type = task['type']
+            ds_name = task['dataset_name']
+            split_name = task['split']
+            file_path = task['path']
+            
+            out_dir = Config.EMBEDDING_DIR / ds_type / ds_name / self.model_name
+            out_dir.mkdir(parents=True, exist_ok=True)
+            
+            out_ctx_npy = out_dir / f"{split_name}_context_embeddings.npy"
+            out_rsp_npy = out_dir / f"{split_name}_response_embeddings.npy"
+            out_pmt_npy = out_dir / f"{split_name}_prompt_embeddings.npy"
+            out_pmt_pmi_npy = out_dir / f"{split_name}_prompt_pmi_embeddings.npy"
+            out_meta = out_dir / f"{split_name}_meta.csv"
+            
+            op_name = f"{self.model_name} - Embed - {ds_type}/{ds_name}/{split_name}"
+            STATS.start(op_name)
+            print(f"[OpenRouter] Embedding {ds_type}/{ds_name} - {split_name} ...")
+            
+            df = pd.read_csv(file_path)
+            expected_count = len(df)
+            
+            all_skipped = (
+                self._should_skip(out_ctx_npy, expected_count) and
+                self._should_skip(out_rsp_npy, expected_count) and
+                self._should_skip(out_pmt_npy, expected_count) and
+                self._should_skip(out_pmt_pmi_npy, expected_count) and
+                out_meta.exists()
+            )
+            if all_skipped:
+                print(f"[Skip] All embeddings valid for {ds_type}/{ds_name}/{split_name}")
+                STATS.end(op_name)
+                continue
+            
+            contexts = []
+            responses = []
+            prompts_meep = []
+            prompts_pmi = []
+            
+            for _, row in df.iterrows():
+                c = str(row.get('context_paraphrased', row.get('context', '')))
+                r = str(row.get('response_paraphrased', row.get('response', '')))
+                contexts.append(c)
+                responses.append(r)
+                prompts_meep.append(Config.MEEP_PROMPT_TEMPLATE.format(context=c, response=r))
+                prompts_pmi.append(Config.PMI_PROMPT_TEMPLATE.format(context=c, response=r))
+            
+            try:
+                if not self._should_skip(out_ctx_npy, expected_count):
+                    print("  -> Embedding Contexts...")
+                    ctx_embeddings = self.embed_texts(contexts)
+                    np.save(out_ctx_npy, ctx_embeddings)
+                
+                if not self._should_skip(out_rsp_npy, expected_count):
+                    print("  -> Embedding Responses...")
+                    rsp_embeddings = self.embed_texts(responses)
+                    np.save(out_rsp_npy, rsp_embeddings)
+                
+                if not self._should_skip(out_pmt_npy, expected_count):
+                    print("  -> Embedding Prompts_MEEP...")
+                    pmt_embeddings = self.embed_texts(prompts_meep)
+                    np.save(out_pmt_npy, pmt_embeddings)
+                
+                if not self._should_skip(out_pmt_pmi_npy, expected_count):
+                    print("  -> Embedding Prompts_PMI...")
+                    pmt_pmi_embeddings = self.embed_texts(prompts_pmi)
+                    np.save(out_pmt_pmi_npy, pmt_pmi_embeddings)
+                
+            except Exception as e:
+                print(f"[Error] OpenRouter embedding failed: {e}")
+                import traceback
+                traceback.print_exc()
+                STATS.end(op_name)
+                continue
+            
+            cols_to_exclude = [
+                'context', 'response', 'context_paraphrased', 'response_paraphrased',
+                'joint_file', 'px_file', 'py_file'
+            ]
+            meta_cols = [c for c in df.columns if c not in cols_to_exclude]
+            df[meta_cols].to_csv(out_meta, index=False)
+            
+            print(f"Saved 4 embedding sets for {ds_name}/{split_name}")
+            STATS.end(op_name)
+
+
 def main():
     """
     Main execution function for Module 2: Embedding Generation.
     
     Runs embedding generation and MEEP scoring for all configured models.
     """
+    parser = argparse.ArgumentParser(description="PMIScore Module 2: Embedding Generation")
+    parser.add_argument("--force-overwrite", action="store_true",
+                        help="Force regenerate embeddings even if they exist with correct count")
+    parser.add_argument("--openrouter-only", action="store_true",
+                        help="Only run OpenRouter embedding models (skip vLLM models)")
+    parser.add_argument("--vllm-only", action="store_true",
+                        help="Only run vLLM models (skip OpenRouter models)")
+    args = parser.parse_args()
+    
     install_dependencies()
     
     print(f"\n{'='*40}")
     print(f"PMIScore Module 2: Embedding Generation")
     print(f"Output Base: {Config.BASE_DIR}")
     print(f"Structure:   {{BASE}}/{{type}}/{{dataset}}/{{model}}/...")
-    print(f"Models:      {len(Config.MODELS)} models queued")
+    print(f"vLLM Models: {len(Config.MODELS)}")
+    print(f"OpenRouter:  {len(Config.OPENROUTER_EMBEDDING_MODELS)}")
+    print(f"Force Overwrite: {args.force_overwrite}")
     print(f"{'='*40}\n")
     
-    for model_path in Config.MODELS:
-        print(f"\n>>> Processing Model: {model_path} <<<")
-        processor = ModelProcessor(model_path)
-        
-        # 1. Generate embeddings (4 sets: Context, Response, Prompted)
-        try:
-            processor.run_embeddings()
-        except Exception as e:
-            print(f"[Error] Embedding for {model_path}: {e}")
-            clear_gpu_memory()
-        
-        # 2. Generate MEEP scores
-        try:
-            processor.run_meep_scoring()
-        except Exception as e:
-            print(f"[Error] Scoring for {model_path}: {e}")
-            clear_gpu_memory()
+    if not args.vllm_only:
+        for model_id in Config.OPENROUTER_EMBEDDING_MODELS:
+            print(f"\n>>> Processing OpenRouter Model: {model_id} <<<")
+            processor = OpenRouterEmbeddingProcessor(model_id, args.force_overwrite)
+            try:
+                processor.run_embeddings()
+            except Exception as e:
+                print(f"[Error] OpenRouter embedding for {model_id}: {e}")
+    
+    if not args.openrouter_only:
+        for model_path in Config.MODELS:
+            print(f"\n>>> Processing vLLM Model: {model_path} <<<")
+            processor = ModelProcessor(model_path, args.force_overwrite)
+            
+            try:
+                processor.run_embeddings()
+            except Exception as e:
+                print(f"[Error] Embedding for {model_path}: {e}")
+                clear_gpu_memory()
+            
+            try:
+                processor.run_meep_scoring()
+            except Exception as e:
+                print(f"[Error] Scoring for {model_path}: {e}")
+                clear_gpu_memory()
     
     print("\n[Module 2 Finished] All embeddings and scores generated.")
     STATS.summary("execution_summary_module2.txt")

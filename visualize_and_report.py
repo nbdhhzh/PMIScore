@@ -62,11 +62,14 @@ class VisualizationConfig:
         "Direct_MEEP": "MEEP"
     }
 
-    # Target methods for visualization
+    # Target methods for visualization (figures)
     TARGET_METHODS = ["PMIScore", "MINE", "InfoNCE", "KDE", "MEEP"]
 
-    # Methods for LaTeX tables
+    # Methods for LaTeX tables (includes all methods, MEEP shown as "-" for OpenRouter models)
     TABLE_METHODS = ["PMIScore", "MINE", "InfoNCE", "KDE", "MEEP"]
+    
+    # OpenRouter model names (tables only, excluded from figures)
+    OPENROUTER_MODEL_NAMES = config.Config.OPENROUTER_MODEL_NAMES
 
 
 # Create output directory
@@ -88,6 +91,8 @@ def load_and_aggregate_pooled():
     Aggregation strategy:
     1. Intra-Model: Average over 5 rounds for each model
     2. Inter-Model: Compute mean and SEM across models
+    
+    Note: Excludes OpenRouter models (tables only, no figures).
 
     Returns:
         DataFrame with columns: Dataset_Type, Dataset, Method_Display, metric_mu, metric_sigma
@@ -100,6 +105,10 @@ def load_and_aggregate_pooled():
     df = pd.read_csv(VisualizationConfig.RAW_FILE)
     df['Method_Display'] = df['Method'].map(VisualizationConfig.METHOD_MAP).fillna(df['Method'])
     df = df[df['Method_Display'].isin(VisualizationConfig.TARGET_METHODS)].copy()
+    
+    # Exclude OpenRouter models from figures (they don't have MEEP scores)
+    if 'Model' in df.columns:
+        df = df[~df['Model'].isin(VisualizationConfig.OPENROUTER_MODEL_NAMES)].copy()
 
     # Identify metric columns
     metric_cols = [c for c in df.columns if c not in [

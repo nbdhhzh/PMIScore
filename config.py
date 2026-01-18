@@ -198,6 +198,20 @@ class Config:
     API_URL = "https://openrouter.ai/api/v1/chat/completions"
     MAX_WORKERS = 20
     
+    # OpenRouter Embedding Models (embedding-only, no MEEP scoring)
+    OPENROUTER_EMBEDDING_MODELS = [
+        "qwen/qwen3-embedding-8b",
+        "qwen/qwen3-embedding-4b",
+    ]
+    
+    # OpenRouter model names (for filtering in visualization - tables only, no plots)
+    OPENROUTER_MODEL_NAMES = [m.split("/")[-1] for m in OPENROUTER_EMBEDDING_MODELS]
+    
+    # OpenRouter Embedding API Configuration
+    OPENROUTER_EMBEDDING_URL = "https://openrouter.ai/api/v1/embeddings"
+    OPENROUTER_BATCH_SIZE = 50
+    OPENROUTER_MAX_CONCURRENT = 10
+    
     # Paraphrasing styles
     PARAPHRASE_STYLES = [
         "formal and professional",
