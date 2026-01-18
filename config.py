@@ -49,11 +49,11 @@ class Config:
     # ==========================================
     
     # Negative sampling
-    TRAIN_NEG_RATIO = 15  # Number of negative samples per positive
+    TRAIN_NEG_RATIO = 20  # Number of negative samples per positive
     NEG_IN_DIALOGUE_PROB = 0.1  # Probability of negative sample in dialogue
     NUM_ROUNDS = 5  # Number of training rounds
-    NEG_SAMPLES_USED = 3  # Number of negatives used per round (out of 15)
-    GROUP_SIZE = 1 + (NUM_ROUNDS * NEG_SAMPLES_USED)  # 1 pos + (5 * 3) neg = 16
+    NEG_SAMPLES_USED = 4  # Number of negatives used per round (out of 15)
+    GROUP_SIZE = 1 + (NUM_ROUNDS * NEG_SAMPLES_USED)  # 1 pos + (5 * 4) neg = 21
     
     # Random seed for reproducibility
     SEED = 42
@@ -198,8 +198,8 @@ Result:"""
     
     # OpenRouter Embedding Models (embedding-only, no MEEP scoring)
     OPENROUTER_EMBEDDING_MODELS = [
-        "openai/text-embedding-3-large",
-        "google/gemini-embedding-001",
+        # "openai/text-embedding-3-large",
+        # "google/gemini-embedding-001",
     ]
     
     # OpenRouter model names (for filtering in visualization - tables only, no plots)
