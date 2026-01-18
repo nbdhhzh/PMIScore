@@ -252,9 +252,9 @@ def format_latex_cell(mean, std, is_best):
     std_str = f"({std:.3f})"
 
     if is_best:
-        content = "\\makecell{\\textbf{" + val_str + "} \\\\[\\scriptsize " + std_str + "}}"
+        content = "\\makecell{\\textbf{" + val_str + "} \\\\ {\\scriptsize " + std_str + "}}"
     else:
-        content = "\\makecell{" + val_str + " \\\\[\\scriptsize " + std_str + "}"
+        content = "\\makecell{" + val_str + " \\\\ {\\scriptsize " + std_str + "}}"
 
     return content
 
