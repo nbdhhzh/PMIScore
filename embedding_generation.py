@@ -17,7 +17,6 @@ Requirements: GPU with vLLM support
 
 import os
 import json
-import asyncio
 import argparse
 import numpy as np
 import pandas as pd
@@ -26,18 +25,20 @@ from tqdm.auto import tqdm
 from config import Config, ExecutionStats
 
 try:
-    import aiohttp
+    from openai import OpenAI
 except ImportError:
-    aiohttp = None
+    OpenAI = None
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Initialize execution stats
 STATS = ExecutionStats()
 
 
 def install_dependencies():
-    """Install required dependencies for vLLM, GPU processing, and async HTTP."""
+    """Install required dependencies for vLLM, GPU processing, and OpenAI SDK."""
     print("[Info] Installing vLLM and other dependencies...")
-    os.system("pip install vllm aiohttp")
+    os.system("pip install vllm openai")
 
 
 def clear_gpu_memory():
@@ -592,41 +593,44 @@ class OpenRouterEmbeddingProcessor:
         
         return files
     
-    async def _embed_batch(self, texts, session):
+    def _init_client(self):
+        """Initialize OpenAI client for OpenRouter."""
+        if OpenAI is None:
+            raise ImportError("openai is required. Run: pip install openai")
+        
+        return OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=Config.API_KEY,
+        )
+    
+    def _embed_batch(self, client, texts, batch_idx):
         """
         Send a batch of texts to OpenRouter embedding API.
         
         Args:
+            client: OpenAI client instance.
             texts: List of texts to embed.
-            session: aiohttp ClientSession.
+            batch_idx: Batch index for error reporting.
         
         Returns:
-            List of embedding vectors.
+            Tuple of (batch_idx, list of embedding vectors) or (batch_idx, None) on error.
         """
-        headers = {
-            "Authorization": f"Bearer {Config.API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": self.model_id,
-            "input": texts
-        }
-        
-        async with session.post(
-            Config.OPENROUTER_EMBEDDING_URL,
-            json=payload,
-            headers=headers
-        ) as resp:
-            if resp.status != 200:
-                error_text = await resp.text()
-                raise Exception(f"API error {resp.status}: {error_text}")
-            result = await resp.json()
-            sorted_data = sorted(result["data"], key=lambda x: x["index"])
-            return [item["embedding"] for item in sorted_data]
+        try:
+            response = client.embeddings.create(
+                model=self.model_id,
+                input=texts,
+                encoding_format="float",
+            )
+            sorted_data = sorted(response.data, key=lambda x: x.index)
+            embeddings = [item.embedding for item in sorted_data]
+            return (batch_idx, embeddings)
+        except Exception as e:
+            print(f"[Error] Batch {batch_idx} failed: {e}")
+            return (batch_idx, None)
     
-    async def _embed_texts_async(self, texts):
+    def embed_texts(self, texts):
         """
-        Embed all texts using parallel API calls.
+        Embed all texts using parallel API calls with ThreadPoolExecutor.
         
         Args:
             texts: List of texts to embed.
@@ -634,31 +638,22 @@ class OpenRouterEmbeddingProcessor:
         Returns:
             numpy.ndarray: Embedding matrix.
         """
-        if aiohttp is None:
-            raise ImportError("aiohttp is required. Run: pip install aiohttp")
+        client = self._init_client()
         
         batch_size = Config.OPENROUTER_BATCH_SIZE
         batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
         
-        semaphore = asyncio.Semaphore(Config.OPENROUTER_MAX_CONCURRENT)
+        results = [None] * len(batches)
         
-        async def limited_embed(batch, session, batch_idx):
-            async with semaphore:
-                try:
-                    return await self._embed_batch(batch, session)
-                except Exception as e:
-                    print(f"[Error] Batch {batch_idx} failed: {e}")
-                    return None
-        
-        connector = aiohttp.TCPConnector(limit=Config.OPENROUTER_MAX_CONCURRENT)
-        timeout = aiohttp.ClientTimeout(total=300)
-        
-        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-            tasks = [limited_embed(batch, session, i) for i, batch in enumerate(batches)]
-            results = []
-            for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="API Batches"):
-                result = await coro
-                results.append(result)
+        with ThreadPoolExecutor(max_workers=Config.OPENROUTER_MAX_CONCURRENT) as executor:
+            futures = {
+                executor.submit(self._embed_batch, client, batch, i): i 
+                for i, batch in enumerate(batches)
+            }
+            
+            for future in tqdm(as_completed(futures), total=len(futures), desc="API Batches"):
+                batch_idx, embeddings = future.result()
+                results[batch_idx] = embeddings
         
         embed_dim = None
         for r in results:
@@ -678,18 +673,6 @@ class OpenRouterEmbeddingProcessor:
                 all_embeddings.extend([[0.0] * embed_dim] * len(batch))
         
         return np.array(all_embeddings, dtype=np.float32)
-    
-    def embed_texts(self, texts):
-        """
-        Synchronous wrapper for embedding texts.
-        
-        Args:
-            texts: List of texts to embed.
-        
-        Returns:
-            numpy.ndarray: Embedding matrix.
-        """
-        return asyncio.run(self._embed_texts_async(texts))
     
     def run_embeddings(self):
         """
