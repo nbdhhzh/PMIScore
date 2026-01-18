@@ -330,7 +330,7 @@ def print_latex_tables():
                 models = sorted(ds_df['Model'].unique())
 
                 # Dataset multirow
-                write_line(r"\multirow{" + str(int(len(models) * 1.5)) + r"}*}{" + ds.capitalize() + r"}")
+                write_line(r"\multirow{" + str(int(len(models) * 1.5)) + r"}{*}{" + ds.capitalize() + r"}")
 
                 for model in models:
                     row_str = f" & {model}"
@@ -408,7 +408,7 @@ def print_latex_tables():
                 ds_df = emp_agg[emp_agg['Dataset'] == ds]
                 models = sorted(ds_df['Model'].unique())
 
-                write_line(r"\multirow{" + str(int(len(models) * 1.5)) + r"}*}{" + ds.capitalize() + r"}")
+                write_line(r"\multirow{" + str(int(len(models) * 1.5)) + r"}{*}{" + ds.capitalize() + r"}")
 
                 for model in models:
                     row_str = f" & {model}"
